@@ -711,6 +711,14 @@ class VoiceSystem:
             wf.writeframes(audio_bytes)
         wav_bytes = buf.getvalue()
 
+        if not self.groq_api_key:
+            logger.warning(
+                "No GROQ_API_KEY — cannot transcribe. Add a Groq key in setup "
+                "or run /setkey groq <key> (free at console.groq.com), then restart voice."
+            )
+            await self._fire_vad_event("transcription", "[Speech-to-text unavailable: no Groq key configured]")
+            return
+
         try:
             import aiohttp
             form = aiohttp.FormData()
@@ -740,8 +748,11 @@ class VoiceSystem:
                     else:
                         body = await resp.text()
                         logger.warning("Groq Whisper error %d: %s", resp.status, body[:100])
+                        reason = "bad/expired Groq key" if resp.status in (401, 403) else f"Groq error {resp.status}"
+                        await self._fire_vad_event("transcription", f"[Transcription failed: {reason}]")
         except Exception as e:
             logger.error("Transcription error: %s", e)
+            await self._fire_vad_event("transcription", f"[Transcription failed: {e}]")
 
     # ================================================================
     # MICROPHONE CAPTURE
@@ -1126,6 +1137,17 @@ class VoiceSystem:
         if self.elevenlabs_api_key and self.voice_id and not self._elevenlabs_degraded:
             await self._speak_elevenlabs(text)
         else:
+            # Diagnose WHY we're not using ElevenLabs — silent fallback to the
+            # system voice (often a default female espeak voice) was confusing
+            # setup testers who DID enter a key but never picked a voice.
+            if self.elevenlabs_api_key and not self.voice_id:
+                logger.warning(
+                    "ElevenLabs key is set but NO voice_id selected — falling back to "
+                    "the system voice. Pick a voice in setup (Fetch Voices -> Select Voice) "
+                    "or run /setkey, then restart."
+                )
+            elif self.elevenlabs_api_key and self._elevenlabs_degraded:
+                logger.warning("ElevenLabs degraded — using system voice fallback.")
             await self._speak_local(text)
 
         # Return to previous listening state

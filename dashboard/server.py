@@ -201,6 +201,17 @@ async def api_setup(request):
                 "error": "You need at least one AI provider — Claude Max, an API key, or a Groq key."
             }, status=400)
 
+        # Validate: if an ElevenLabs key was entered, a voice MUST be picked —
+        # otherwise we silently fall back to the system voice (the "why is it a
+        # female voice" trap). Fail loud at setup instead.
+        if elevenlabs_api_key and not elevenlabs_voice_id:
+            return web.json_response({
+                "error": (
+                    "You entered an ElevenLabs key but didn't pick a voice. "
+                    "Click 'Fetch Voices' and select one, or clear the key to use the system voice."
+                )
+            }, status=400)
+
         cfg = {
             "ai_name": ai_name,
             "owner_name": owner_name,
@@ -239,6 +250,8 @@ async def api_setup(request):
                     vs.elevenlabs_api_key = elevenlabs_api_key
                 if elevenlabs_voice_id:
                     vs.voice_id = elevenlabs_voice_id
+                if groq_api_key:
+                    vs.groq_api_key = groq_api_key   # hot-update STT key (was only read at boot)
                 if hasattr(vs, 'reset_elevenlabs'):
                     vs.reset_elevenlabs()
 
